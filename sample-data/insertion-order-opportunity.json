@@ -1,0 +1,106 @@
+{
+  "id": "opp_003",
+  "type": "insertion_order",
+  "account_name": "Gamma Solutions",
+  "account_id": "acc_11111",
+  "recurly_account_code": "gamma_solutions",
+  "opportunity_name": "Gamma Solutions - Q3 Upsell",
+  "close_date": "2024-09-15",
+  "amount": 36000,
+  "effective_date": "2024-10-01",
+  "billing_frequency": "monthly",
+  "payment_terms": "net_30",
+  "existing_contract": {
+    "id": "contract_gamma_2024",
+    "start_date": "2024-01-01",
+    "end_date": "2024-12-31",
+    "current_annual_value": 96000,
+    "remaining_months": 3
+  },
+  "line_items": [
+    {
+      "id": "li_008",
+      "product_name": "Advanced Segmentation",
+      "product_code": "ADV_SEGMENT",
+      "quantity": 1,
+      "unit_price": 2000,
+      "total_price": 6000,
+      "billing_period": "monthly",
+      "description": "Advanced user segmentation features",
+      "item_classification": "subscription_consumption",
+      "proration_needed": true,
+      "months_remaining": 3,
+      "affects_base_subscription": true
+    },
+    {
+      "id": "li_009",
+      "product_name": "API Overages",
+      "product_code": "API_OVERAGE",
+      "quantity": 5000,
+      "unit_price": 0.001,
+      "total_price": 15000,
+      "billing_period": "monthly",
+      "description": "Additional API calls - 5M per month",
+      "item_classification": "non_subscription_consumption",
+      "proration_needed": true,
+      "months_remaining": 3,
+      "affects_base_subscription": false
+    },
+    {
+      "id": "li_010",
+      "product_name": "Implementation Services",
+      "product_code": "IMPL_SERVICES",
+      "quantity": 20,
+      "unit_price": 250,
+      "total_price": 5000,
+      "billing_period": "one_time",
+      "description": "Implementation support for new features",
+      "item_classification": "one_time_service",
+      "proration_needed": false,
+      "immediate_invoice": true
+    }
+  ],
+  "contact_info": {
+    "primary_contact": "David Park",
+    "email": "david.park@gammasolutions.com",
+    "billing_address": {
+      "company": "Gamma Solutions LLC",
+      "address_line_1": "789 Tech Center Dr",
+      "city": "Seattle",
+      "state": "WA",
+      "postal_code": "98109",
+      "country": "US"
+    }
+  },
+  "sales_rep": "Lisa Wang",
+  "insertion_notes": [
+    "Customer hit API limits and needs additional capacity",
+    "Wants advanced segmentation for holiday campaigns",
+    "Prorate charges for remaining contract period",
+    "Implementation services to be charged immediately"
+  ],
+  "proration_details": {
+    "current_period_end": "2024-12-31",
+    "next_invoice_date": "2024-11-01",
+    "upsell_start_date": "2024-10-01",
+    "contract_end_date": "2024-12-31",
+    "payment_frequency": "monthly",
+    "months_to_prorate": 3,
+    "days_to_prorate": 92,
+    "proration_methods": {
+      "day_based": "Calculate based on exact days remaining in period",
+      "month_based": "Calculate based on months remaining for subscription alignment"
+    },
+    "billing_scenarios": {
+      "immediate_invoice": "Services starting before next billing cycle",
+      "subscription_update": "Changes to existing subscription pricing",
+      "future_billing": "Services starting at next billing cycle"
+    }
+  },
+  "outstanding_invoices": {
+    "has_outstanding": true,
+    "invoice_ids": ["INV-2024-001456"],
+    "total_outstanding": 8000,
+    "requires_processing": true
+  }
+} 
