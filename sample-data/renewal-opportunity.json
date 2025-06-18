@@ -1,0 +1,76 @@
+{
+  "id": "opp_002",
+  "type": "renewal",
+  "account_name": "Beta Industries",
+  "account_id": "acc_67890",
+  "recurly_account_code": "beta_industries",
+  "opportunity_name": "Beta Industries - Renewal 2025",
+  "close_date": "2024-10-20",
+  "amount": 180000,
+  "contract_start_date": "2025-01-01",
+  "contract_end_date": "2025-12-31",
+  "billing_frequency": "quarterly",
+  "payment_terms": "net_15",
+  "previous_contract": {
+    "id": "contract_beta_2024",
+    "start_date": "2024-01-01",
+    "end_date": "2024-12-31",
+    "annual_value": 144000
+  },
+  "line_items": [
+    {
+      "id": "li_005",
+      "product_name": "Professional Plan",
+      "product_code": "PRO_PLAN",
+      "quantity": 1,
+      "unit_price": 6000,
+      "total_price": 72000,
+      "billing_period": "monthly",
+      "description": "Professional plan - increased price due to usage growth",
+      "previous_price": 5000,
+      "price_change_reason": "Usage tier increase"
+    },
+    {
+      "id": "li_006",
+      "product_name": "Analytics Service",
+      "product_code": "ANALYTICS_SVC",
+      "quantity": 1,
+      "unit_price": 3000,
+      "total_price": 36000,
+      "billing_period": "monthly",
+      "description": "Advanced analytics - upgraded tier",
+      "previous_price": 2000,
+      "price_change_reason": "Tier upgrade"
+    },
+    {
+      "id": "li_007",
+      "product_name": "Enterprise Support",
+      "product_code": "ENT_SUPPORT",
+      "quantity": 1,
+      "unit_price": 6000,
+      "total_price": 72000,
+      "billing_period": "monthly",
+      "description": "New: 24/7 enterprise support",
+      "is_new_product": true
+    }
+  ],
+  "contact_info": {
+    "primary_contact": "Maria Rodriguez",
+    "email": "maria.rodriguez@betaindustries.com",
+    "billing_address": {
+      "company": "Beta Industries Inc.",
+      "address_line_1": "456 Innovation Blvd",
+      "city": "Austin",
+      "state": "TX",
+      "postal_code": "78701",
+      "country": "US"
+    }
+  },
+  "sales_rep": "Mike Chen",
+  "renewal_notes": [
+    "Customer wants to switch from monthly to quarterly billing",
+    "Adding enterprise support due to growth",
+    "Price increases due to higher usage tiers",
+    "Existing subscription ends December 31, 2024"
+  ]
+} 

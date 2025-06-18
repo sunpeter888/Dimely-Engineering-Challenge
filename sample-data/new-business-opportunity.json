@@ -1,0 +1,70 @@
+{
+  "id": "opp_001",
+  "type": "new_business",
+  "account_name": "Acme Corp",
+  "account_id": "acc_12345",
+  "opportunity_name": "Acme Corp - New Business Q4 2024",
+  "close_date": "2024-10-15",
+  "amount": 120000,
+  "contract_start_date": "2024-11-01",
+  "contract_end_date": "2025-10-31",
+  "billing_frequency": "monthly",
+  "payment_terms": "net_30",
+  "line_items": [
+    {
+      "id": "li_001",
+      "product_name": "Professional Plan",
+      "product_code": "PRO_PLAN",
+      "quantity": 1,
+      "unit_price": 5000,
+      "total_price": 60000,
+      "billing_period": "monthly",
+      "description": "Professional plan with advanced features"
+    },
+    {
+      "id": "li_002",
+      "product_name": "Analytics Service",
+      "product_code": "ANALYTICS_SVC",
+      "quantity": 1,
+      "unit_price": 2000,
+      "total_price": 24000,
+      "billing_period": "monthly",
+      "description": "Advanced analytics and reporting"
+    },
+    {
+      "id": "li_003",
+      "product_name": "Setup Fee",
+      "product_code": "SETUP_FEE",
+      "quantity": 1,
+      "unit_price": 5000,
+      "total_price": 5000,
+      "billing_period": "one_time",
+      "description": "One-time setup and onboarding fee"
+    },
+    {
+      "id": "li_004",
+      "product_name": "Professional Services",
+      "product_code": "PROF_SERVICES",
+      "quantity": 50,
+      "unit_price": 300,
+      "total_price": 15000,
+      "billing_period": "one_time",
+      "description": "Professional services hours"
+    }
+  ],
+  "contact_info": {
+    "primary_contact": "John Smith",
+    "email": "john.smith@acme.com",
+    "billing_address": {
+      "company": "Acme Corp",
+      "address_line_1": "123 Business Ave",
+      "address_line_2": "Suite 400",
+      "city": "San Francisco",
+      "state": "CA",
+      "postal_code": "94105",
+      "country": "US"
+    }
+  },
+  "sales_rep": "Sarah Johnson",
+  "notes": "Customer wants to start billing on November 1st. Setup fee should be charged immediately upon contract signing."
+} 

@@ -1,0 +1,123 @@
+{
+  "id": "opp_004",
+  "type": "conversion_order",
+  "account_name": "Delta Innovations",
+  "account_id": "acc_22222",
+  "recurly_account_code": "delta_innovations_ss",
+  "opportunity_name": "Delta Innovations - Self-Service to Direct Sales",
+  "close_date": "2024-10-10",
+  "amount": 84000,
+  "conversion_date": "2024-11-01",
+  "contract_start_date": "2024-11-01",
+  "contract_end_date": "2025-10-31",
+  "billing_frequency": "monthly",
+  "payment_terms": "net_30",
+  "existing_self_service": {
+    "plan_code": "growth_plan",
+    "monthly_amount": 199,
+    "annual_amount": 2388,
+    "current_period_start": "2024-10-01",
+    "current_period_end": "2024-10-31",
+    "subscription_id": "sub_delta_ss_001",
+    "started_date": "2023-03-15",
+    "payment_method": "credit_card"
+  },
+  "line_items": [
+    {
+      "id": "li_011",
+      "product_name": "Professional Plan",
+      "product_code": "PRO_PLAN",
+      "quantity": 1,
+      "unit_price": 4000,
+      "total_price": 48000,
+      "billing_period": "monthly",
+      "description": "Direct sales professional plan",
+      "replaces_self_service": true,
+      "self_service_credit_needed": true
+    },
+    {
+      "id": "li_012",
+      "product_name": "Premium Support",
+      "product_code": "PREMIUM_SUPPORT",
+      "quantity": 1,
+      "unit_price": 1500,
+      "total_price": 18000,
+      "billing_period": "monthly",
+      "description": "Dedicated customer success manager",
+      "is_new_service": true
+    },
+    {
+      "id": "li_013",
+      "product_name": "Advanced Analytics",
+      "product_code": "ADV_ANALYTICS",
+      "quantity": 1,
+      "unit_price": 1500,
+      "total_price": 18000,
+      "billing_period": "monthly",
+      "description": "Enhanced analytics and custom reports",
+      "is_new_service": true
+    }
+  ],
+  "contact_info": {
+    "primary_contact": "Emily Zhang",
+    "email": "emily.zhang@deltainnovations.com",
+    "billing_address": {
+      "company": "Delta Innovations Corp",
+      "address_line_1": "321 Startup Way",
+      "address_line_2": "Floor 12",
+      "city": "New York",
+      "state": "NY",
+      "postal_code": "10001",
+      "country": "US"
+    }
+  },
+  "sales_rep": "Tom Wilson",
+  "conversion_notes": [
+    "Customer outgrew self-service limits",
+    "Needs dedicated support for enterprise features",
+    "Credit remaining self-service subscription",
+    "Switch billing from credit card to invoicing",
+    "Customer wants seamless transition with no service interruption"
+  ],
+  "billing_transition": {
+    "self_service_cancellation_date": "2024-10-31",
+    "credit_amount_due": 133.00,
+    "credit_calculation": "Prorated refund for unused portion of self-service plan",
+    "refund_calculation_method": "day_based_proration",
+    "new_billing_method": "invoice",
+    "first_invoice_date": "2024-11-01",
+    "backdated_conversion": false,
+    "service_continuity": {
+      "requires_seamless_transition": true,
+      "overlap_period_hours": 2,
+      "validation_checks": [
+        "Verify account access maintained",
+        "Confirm billing data migration",
+        "Test service functionality"
+      ]
+    },
+    "refund_items": [
+      {
+        "item_type": "unused_subscription_time",
+        "original_amount": 199.00,
+        "days_unused": 23,
+        "days_in_period": 31,
+        "refund_amount": 133.00
+      }
+    ],
+    "account_upgrade_processing": {
+      "company_name": "Delta Innovations Corp",
+      "billing_account_code": "delta_innovations_ss",
+      "upgrade_effective_date": "2024-11-01",
+      "requires_manual_review": true
+    },
+    "transition_requirements": [
+      "Cancel existing self-service subscription at period end",
+      "Calculate and apply precise refund for unused time",
+      "Create new direct sales subscription with enterprise features",
+      "Update payment method from automatic card to NET-30 invoicing",
+      "Migrate account data and preserve service settings",
+      "Ensure zero service interruption during transition"
+    ]
+  }
+} 

@@ -1,0 +1,76 @@
+{
+  "account": {
+    "account_code": "gamma_solutions",
+    "email": "david.park@gammasolutions.com",
+    "first_name": "David",
+    "last_name": "Park",
+    "company_name": "Gamma Solutions LLC",
+    "state": "active",
+    "created_at": "2024-01-01T00:00:00Z",
+    "updated_at": "2024-09-15T14:20:00Z",
+    "billing_info": {
+      "payment_method": "invoice",
+      "card_type": null,
+      "last_four": null
+    },
+    "address": {
+      "address1": "789 Tech Center Dr",
+      "city": "Seattle",
+      "state": "WA",
+      "zip": "98109",
+      "country": "US"
+    }
+  },
+  "subscriptions": [
+    {
+      "uuid": "sub_gamma_001",
+      "plan_code": "professional_plan",
+      "state": "active",
+      "unit_amount_in_cents": 800000,
+      "quantity": 1,
+      "current_period_started_at": "2024-09-01T00:00:00Z",
+      "current_period_ends_at": "2024-09-30T23:59:59Z",
+      "started_at": "2024-01-01T00:00:00Z",
+      "expires_at": "2024-12-31T23:59:59Z",
+      "collection_method": "manual",
+      "net_terms": 30,
+      "add_ons": []
+    }
+  ],
+  "invoices": [
+    {
+      "invoice_number": "INV-2024-001456",
+      "state": "pending",
+      "total_in_cents": 800000,
+      "created_at": "2024-09-01T00:00:00Z",
+      "due_at": "2024-10-01T00:00:00Z",
+      "line_items": [
+        {
+          "type": "plan",
+          "description": "Professional Plan - Sept 2024",
+          "amount_in_cents": 800000,
+          "plan_code": "professional_plan"
+        }
+      ]
+    },
+    {
+      "invoice_number": "INV-2024-001398",
+      "state": "paid",
+      "total_in_cents": 800000,
+      "created_at": "2024-08-01T00:00:00Z",
+      "due_at": "2024-08-31T00:00:00Z",
+      "closed_at": "2024-08-28T10:15:00Z"
+    }
+  ],
+  "transactions": [
+    {
+      "type": "purchase",
+      "action": "purchase",
+      "amount_in_cents": 800000,
+      "status": "success",
+      "created_at": "2024-08-28T10:15:00Z",
+      "invoice_number": "INV-2024-001398"
+    }
+  ]
+}
+

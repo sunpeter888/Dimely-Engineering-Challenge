@@ -1,0 +1,48 @@
+{
+  "id": "opp_simple_001",
+  "type": "new_business",
+  "account_name": "Simple Corp",
+  "account_id": "acc_simple_123",
+  "opportunity_name": "Simple Corp - New Business",
+  "close_date": "2024-10-15",
+  "amount": 60000,
+  "contract_start_date": "2024-11-01",
+  "contract_end_date": "2025-10-31",
+  "billing_frequency": "monthly",
+  "payment_terms": "net_30",
+  "line_items": [
+    {
+      "id": "li_simple_001",
+      "product_name": "Professional Plan",
+      "product_code": "PRO_PLAN",
+      "quantity": 1,
+      "unit_price": 4000,
+      "total_price": 48000,
+      "billing_period": "monthly",
+      "description": "Monthly professional subscription"
+    },
+    {
+      "id": "li_simple_002",
+      "product_name": "Setup Fee",
+      "product_code": "SETUP_FEE",
+      "quantity": 1,
+      "unit_price": 5000,
+      "total_price": 5000,
+      "billing_period": "one_time",
+      "description": "One-time setup and onboarding"
+    }
+  ],
+  "contact_info": {
+    "primary_contact": "Jane Smith",
+    "email": "jane@simplecorp.com",
+    "billing_address": {
+      "company": "Simple Corp",
+      "address_line_1": "123 Simple St",
+      "city": "Simpletown",
+      "state": "CA",
+      "postal_code": "90210",
+      "country": "US"
+    }
+  },
+  "sales_rep": "Alex Johnson"
+} 
