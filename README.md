@@ -2,16 +2,16 @@
 
 ## Background
 
-Welcome to the Dimely engineering challenge! Dimely is a sophisticated AI-powered billing automation system that processes closed-won opportunities and their associated contracts in Salesforce to automate billing operations in Recurly.
+Welcome to the Dimely engineering challenge! Dimely automates backoffice finance workflows for B2B SaaS companies. A workflow that you're going to work on is our contract to billing workflow for customers that use a subscription based billing platform.
 
 ### The Real System
 
 The production Dimely system is a complex AI agent that:
 
-1. **Processes contract PDFs** using OpenAI GPT-4o to extract line items, pricing, and terms
+1. **Processes contract PDFs** using LLMs to extract line items, pricing, and terms
 2. **Classifies order types** and applies specific business logic for each type
 3. **Performs intelligent proration calculations** for mid-term subscription changes
-4. **Integrates with multiple systems** (Recurly, Salesforce, Google Sheets, Slack)
+4. **Integrates with multiple systems** (Recurly, Salesforce, Dimely, Google Sheets, Slack)
 5. **Manages approval workflows** with human oversight before billing execution
 6. **Handles complex billing scenarios** like subscription vs non-subscription items, refunds, and account transitions
 
