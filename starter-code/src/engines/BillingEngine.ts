@@ -1,284 +1,155 @@
-import { Opportunity, RecurlyState, BillingAction, BillingActionType } from '../types';
-import { RecurlyClient } from '../clients/RecurlyClient';
+import { RecurlyClient } from "../clients/RecurlyClient";
+import { Opportunity, RecurlyState, BillingAction } from "../types";
+import { ActionFactory } from "./actions/ActionFactory";
+import { RiskCalculator } from "./validation/RiskCalculator";
+import { ProrationEngine } from "./proration/ProrationEngine";
 
 export class BillingEngine {
-  constructor(private recurlyClient: RecurlyClient) {}
+  private actionFactory: ActionFactory;
+  private riskCalculator: RiskCalculator;
+  private prorationEngine: ProrationEngine;
+
+  constructor(private recurlyClient: RecurlyClient) {
+    this.riskCalculator = new RiskCalculator();
+    this.prorationEngine = new ProrationEngine();
+    this.actionFactory = new ActionFactory(
+      this.recurlyClient,
+      this.riskCalculator,
+      this.prorationEngine
+    );
+  }
 
   /**
    * Generate billing actions based on opportunity and current Recurly state
    */
-  async generateActions(opportunity: Opportunity, recurlyState: RecurlyState | null): Promise<BillingAction[]> {
-    const actions: BillingAction[] = [];
+  async generateActions(
+    opportunity: Opportunity,
+    recurlyState: RecurlyState | null
+  ): Promise<BillingAction[]> {
+    try {
+      // Validate opportunity
+      this.validateOpportunity(opportunity);
 
-    switch (opportunity.type) {
-      case 'new_business':
-        actions.push(...this.generateNewBusinessActions(opportunity));
-        break;
-      case 'renewal':
-        actions.push(...this.generateRenewalActions(opportunity, recurlyState));
-        break;
-      case 'insertion_order':
-        actions.push(...this.generateInsertionOrderActions(opportunity, recurlyState));
-        break;
-      case 'conversion_order':
-        actions.push(...this.generateConversionActions(opportunity, recurlyState));
-        break;
-    }
+      // Calculate overall opportunity risk
+      const opportunityRisk =
+        this.riskCalculator.calculateOpportunityRisk(opportunity);
 
-    return actions;
-  }
-
-  /**
-   * Generate actions for new business opportunities
-   */
-  private generateNewBusinessActions(opportunity: Opportunity): BillingAction[] {
-    const actions: BillingAction[] = [];
-
-    // Create new account
-    actions.push({
-      type: 'create_account',
-      description: `Create new Recurly account for ${opportunity.account_name}`,
-      details: {
-        account_code: opportunity.account_id,
-        company_name: opportunity.contact_info.billing_address.company,
-        email: opportunity.contact_info.email,
-        billing_address: opportunity.contact_info.billing_address,
-      },
-      requires_review: false,
-      risk_level: 'low',
-    });
-
-    // Handle line items
-    opportunity.line_items.forEach(item => {
-      if (item.billing_period === 'one_time') {
-        actions.push({
-          type: 'charge_one_time',
-          description: `One-time charge: ${item.product_name}`,
-          details: {
-            product_code: item.product_code,
-            amount_in_cents: item.total_price * 100,
-            description: item.description,
-          },
-          amount_in_cents: item.total_price * 100,
-          effective_date: opportunity.contract_start_date,
-          requires_review: item.total_price > 1000,
-          risk_level: item.total_price > 5000 ? 'high' : 'medium',
-        });
-      } else {
-        actions.push({
-          type: 'create_subscription',
-          description: `Create subscription: ${item.product_name}`,
-          details: {
-            plan_code: item.product_code,
-            unit_amount_in_cents: item.unit_price * 100,
-            quantity: item.quantity,
-            billing_period: item.billing_period,
-          },
-          amount_in_cents: item.total_price * 100,
-          effective_date: opportunity.contract_start_date,
-          requires_review: false,
-          risk_level: 'low',
-        });
-      }
-    });
-
-    return actions;
-  }
-
-  /**
-   * Generate actions for renewal opportunities
-   */
-  private generateRenewalActions(opportunity: Opportunity, recurlyState: RecurlyState | null): BillingAction[] {
-    const actions: BillingAction[] = [];
-
-    if (!recurlyState) {
-      actions.push({
-        type: 'create_account',
-        description: `ERROR: Renewal opportunity but no existing Recurly account found`,
-        details: {},
-        requires_review: true,
-        risk_level: 'high',
-        notes: ['Manual intervention required - account should exist for renewal'],
-      });
-      return actions;
-    }
-
-    // Update existing subscriptions or create new ones
-    opportunity.line_items.forEach(item => {
-      const existingSubscription = recurlyState.subscriptions.find(
-        sub => sub.plan_code === item.product_code || sub.plan_code.includes(item.product_code)
+      // Generate actions using the appropriate action generator
+      const actions = await this.actionFactory.generateActions(
+        opportunity,
+        recurlyState
       );
 
-      if (existingSubscription) {
-        actions.push({
-          type: 'update_subscription',
-          description: `Update subscription: ${item.product_name}`,
+      // Add opportunity-level risk information if high risk
+      if (opportunityRisk.riskLevel === "high") {
+        actions.unshift({
+          type: "error" as BillingAction["type"],
+          description: "High-risk opportunity detected",
           details: {
-            subscription_id: existingSubscription.uuid,
-            new_unit_amount_in_cents: item.unit_price * 100,
-            new_quantity: item.quantity,
-            previous_amount: existingSubscription.unit_amount_in_cents,
+            risk_score: opportunityRisk.score,
+            risk_factors: opportunityRisk.factors,
+            opportunity_id: opportunity.id,
           },
-          amount_in_cents: item.total_price * 100,
-          effective_date: opportunity.contract_start_date,
-          requires_review: item.previous_price !== undefined,
-          risk_level: item.previous_price && item.unit_price > item.previous_price ? 'medium' : 'low',
-          notes: item.price_change_reason ? [item.price_change_reason] : undefined,
-        });
-      } else {
-        actions.push({
-          type: 'create_subscription',
-          description: `Create new subscription: ${item.product_name}`,
-          details: {
-            plan_code: item.product_code,
-            unit_amount_in_cents: item.unit_price * 100,
-            quantity: item.quantity,
-          },
-          amount_in_cents: item.total_price * 100,
-          effective_date: opportunity.contract_start_date,
           requires_review: true,
-          risk_level: 'medium',
-          notes: ['New product added during renewal'],
+          risk_level: "high",
+          notes: [
+            "Opportunity requires special attention due to risk factors",
+            `Risk score: ${opportunityRisk.score}`,
+            ...opportunityRisk.factors,
+          ],
         });
       }
-    });
 
-    return actions;
-  }
-
-  /**
-   * Generate actions for insertion order opportunities
-   */
-  private generateInsertionOrderActions(opportunity: Opportunity, recurlyState: RecurlyState | null): BillingAction[] {
-    const actions: BillingAction[] = [];
-
-    if (!recurlyState) {
-      actions.push({
-        type: 'create_account',
-        description: `ERROR: Insertion order opportunity but no existing Recurly account found`,
-        details: {},
-        requires_review: true,
-        risk_level: 'high',
-        notes: ['Manual intervention required - account should exist for insertion order'],
-      });
       return actions;
-    }
-
-    opportunity.line_items.forEach(item => {
-      if (item.billing_period === 'one_time') {
-        actions.push({
-          type: 'charge_one_time',
-          description: `One-time charge: ${item.product_name}`,
-          details: {
-            product_code: item.product_code,
-            amount_in_cents: item.total_price * 100,
-          },
-          amount_in_cents: item.total_price * 100,
-          requires_review: false,
-          risk_level: 'low',
-        });
-      } else if (item.proration_needed) {
-        actions.push({
-          type: 'prorate_charges',
-          description: `Prorate charges for: ${item.product_name}`,
-          details: {
-            product_code: item.product_code,
-            monthly_amount: item.unit_price * 100,
-            months_remaining: item.months_remaining || 0,
-            proration_date: opportunity.contract_start_date,
-          },
-          amount_in_cents: this.calculateProration(item.unit_price, item.months_remaining || 0),
-          effective_date: opportunity.contract_start_date,
+    } catch (error) {
+      return [
+        {
+          type: "error" as BillingAction["type"],
+          description: `Critical error during ${opportunity.type} processing`,
+          details: { error: String(error), opportunity_id: opportunity.id },
           requires_review: true,
-          risk_level: 'medium',
-          notes: ['Proration calculation - verify dates and amounts'],
-        });
-      }
-    });
-
-    return actions;
+          risk_level: "high",
+          notes: [
+            "Processing completely failed",
+            "Manual intervention required",
+          ],
+        },
+      ];
+    }
   }
 
   /**
-   * Generate actions for self-service conversion opportunities
+   * Validate opportunity data
    */
-  private generateConversionActions(opportunity: Opportunity, recurlyState: RecurlyState | null): BillingAction[] {
-    const actions: BillingAction[] = [];
-
-    if (!recurlyState) {
-      actions.push({
-        type: 'create_account',
-        description: `ERROR: Conversion opportunity but no existing Recurly account found`,
-        details: {},
-        requires_review: true,
-        risk_level: 'high',
-        notes: ['Manual intervention required - self-service account should exist'],
-      });
-      return actions;
+  private validateOpportunity(opportunity: Opportunity): void {
+    if (!opportunity.id) {
+      throw new Error("Opportunity ID is required");
     }
 
-    // Cancel existing self-service subscriptions
-    recurlyState.subscriptions.forEach(subscription => {
-      if (subscription.state === 'active') {
-        actions.push({
-          type: 'cancel_subscription',
-          description: `Cancel self-service subscription: ${subscription.plan_code}`,
-          details: {
-            subscription_id: subscription.uuid,
-            cancellation_date: opportunity.contract_start_date,
-          },
-          requires_review: false,
-          risk_level: 'medium',
-          notes: ['Ensure no service interruption during transition'],
-        });
+    if (!opportunity.type) {
+      throw new Error("Opportunity type is required");
+    }
+
+    if (!opportunity.account_id) {
+      throw new Error("Account ID is required");
+    }
+
+    if (!opportunity.contract_start_date || !opportunity.contract_end_date) {
+      throw new Error("Contract start and end dates are required");
+    }
+
+    if (!opportunity.line_items || opportunity.line_items.length === 0) {
+      throw new Error("At least one line item is required");
+    }
+
+    // Validate line items
+    for (const item of opportunity.line_items) {
+      if (!item.product_code || !item.product_name) {
+        throw new Error(
+          "Product code and name are required for all line items"
+        );
       }
-    });
 
-    // Apply credit for unused self-service time
-    if (opportunity.billing_transition?.credit_amount_due) {
-      actions.push({
-        type: 'apply_credit',
-        description: `Apply credit for unused self-service period`,
-        details: {
-          credit_amount_in_cents: opportunity.billing_transition.credit_amount_due * 100,
-          description: opportunity.billing_transition.credit_calculation,
-        },
-        amount_in_cents: opportunity.billing_transition.credit_amount_due * 100,
-        requires_review: true,
-        risk_level: 'medium',
-        notes: ['Verify credit calculation is correct'],
-      });
+      if (item.unit_price <= 0) {
+        throw new Error("Unit price must be greater than 0");
+      }
+
+      if (item.quantity <= 0) {
+        throw new Error("Quantity must be greater than 0");
+      }
     }
 
-    // Create new enterprise subscriptions
-    opportunity.line_items.forEach(item => {
-      actions.push({
-        type: 'create_subscription',
-        description: `Create enterprise subscription: ${item.product_name}`,
-        details: {
-          plan_code: item.product_code,
-          unit_amount_in_cents: item.unit_price * 100,
-          quantity: item.quantity,
-          collection_method: 'manual', // Switch to invoicing
-          net_terms: 30,
-        },
-        amount_in_cents: item.total_price * 100,
-        effective_date: opportunity.contract_start_date,
-        requires_review: false,
-        risk_level: 'low',
-      });
-    });
+    // Validate dates
+    const startDate = new Date(opportunity.contract_start_date);
+    const endDate = new Date(opportunity.contract_end_date);
 
-    return actions;
+    if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
+      throw new Error("Invalid contract dates");
+    }
+
+    if (startDate >= endDate) {
+      throw new Error("Contract start date must be before end date");
+    }
   }
 
   /**
-   * Calculate prorated amount for partial periods
+   * Get risk calculator for external use
    */
-  private calculateProration(monthlyAmount: number, monthsRemaining: number): number {
-    // Simple daily proration calculation
-    const dailyRate = monthlyAmount / 30;
-    const daysRemaining = monthsRemaining * 30;
-    return Math.round(dailyRate * daysRemaining * 100); // Return in cents
+  getRiskCalculator(): RiskCalculator {
+    return this.riskCalculator;
   }
-} 
+
+  /**
+   * Get proration engine for external use
+   */
+  getProrationEngine(): ProrationEngine {
+    return this.prorationEngine;
+  }
+
+  /**
+   * Get action factory for external use
+   */
+  getActionFactory(): ActionFactory {
+    return this.actionFactory;
+  }
+}

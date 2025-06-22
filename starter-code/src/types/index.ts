@@ -63,9 +63,44 @@ export interface Opportunity {
   renewal_notes?: string[];
   insertion_notes?: string[];
   conversion_notes?: string[];
-  proration_details?: any;
-  billing_transition?: any;
-  outstanding_invoices?: any;
+  proration_details?: ProrationDetails;
+  billing_transition?: BillingTransition;
+  outstanding_invoices?: OutstandingInvoices;
+}
+
+// Enhanced type definitions for order-specific data
+export interface ProrationDetails {
+  current_period_end?: string;
+  next_invoice_date?: string;
+  upsell_start_date?: string;
+  contract_end_date?: string;
+  payment_frequency?: string;
+  months_to_prorate?: number;
+  days_to_prorate?: number;
+  proration_methods?: {
+    day_based?: string;
+    month_based?: string;
+  };
+  billing_scenarios?: {
+    immediate_invoice?: string;
+    subscription_update?: string;
+    future_billing?: string;
+  };
+}
+
+export interface BillingTransition {
+  credit_amount_due?: number;
+  credit_calculation?: string;
+  from_payment_method?: string;
+  to_payment_method?: string;
+  transition_date?: string;
+}
+
+export interface OutstandingInvoices {
+  has_outstanding: boolean;
+  invoice_ids?: string[];
+  total_outstanding?: number;
+  requires_processing?: boolean;
 }
 
 // Recurly API response types
@@ -199,3 +234,57 @@ export interface ProcessingResult {
   errors?: ValidationError[];
   warnings?: string[];
 } 
+
+// Define interfaces for tracking created resources
+export interface CreatedAccount {
+  account_code: string;
+  company_name: string;
+  email: string;
+}
+
+export interface CreatedSubscription {
+  uuid: string;
+  plan_code: string;
+  unit_amount_in_cents: number;
+  quantity: number;
+}
+
+export interface CreatedCharge {
+  type: 'charge_one_time' | 'prorate_charges';
+  description: string;
+  details: Record<string, unknown>;
+  amount_in_cents: number;
+}
+
+export interface CreatedInvoice {
+  type: 'create_invoice';
+  description: string;
+  details: Record<string, unknown>;
+  amount_in_cents: number;
+}
+
+export interface AppliedCredit {
+  type: 'apply_credit';
+  description: string;
+  details: Record<string, unknown>;
+  amount_in_cents: number;
+}
+
+export interface CancelledSubscription {
+  subscription: CreatedSubscription;
+  original: {
+    state: string;
+    plan_code: string;
+    unit_amount_in_cents: number;
+    quantity: number;
+  };
+}
+
+export interface UpdatedSubscription {
+  subscription: CreatedSubscription;
+  original: {
+    unit_amount_in_cents: number;
+    quantity: number;
+    plan_code: string;
+  };
+}
