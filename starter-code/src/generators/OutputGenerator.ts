@@ -102,7 +102,7 @@ export class OutputGenerator {
     }
 
     // Check for payment term changes
-    if (opportunity.type === 'self_service_conversion') {
+    if (opportunity.type === 'conversion_order') {
       warnings.push(`Payment method transition from credit card to invoicing - verify customer setup`);
     }
 
