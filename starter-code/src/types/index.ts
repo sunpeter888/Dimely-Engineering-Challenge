@@ -234,3 +234,57 @@ export interface ProcessingResult {
   errors?: ValidationError[];
   warnings?: string[];
 } 
+
+// Define interfaces for tracking created resources
+export interface CreatedAccount {
+  account_code: string;
+  company_name: string;
+  email: string;
+}
+
+export interface CreatedSubscription {
+  uuid: string;
+  plan_code: string;
+  unit_amount_in_cents: number;
+  quantity: number;
+}
+
+export interface CreatedCharge {
+  type: 'charge_one_time' | 'prorate_charges';
+  description: string;
+  details: Record<string, unknown>;
+  amount_in_cents: number;
+}
+
+export interface CreatedInvoice {
+  type: 'create_invoice';
+  description: string;
+  details: Record<string, unknown>;
+  amount_in_cents: number;
+}
+
+export interface AppliedCredit {
+  type: 'apply_credit';
+  description: string;
+  details: Record<string, unknown>;
+  amount_in_cents: number;
+}
+
+export interface CancelledSubscription {
+  subscription: CreatedSubscription;
+  original: {
+    state: string;
+    plan_code: string;
+    unit_amount_in_cents: number;
+    quantity: number;
+  };
+}
+
+export interface UpdatedSubscription {
+  subscription: CreatedSubscription;
+  original: {
+    unit_amount_in_cents: number;
+    quantity: number;
+    plan_code: string;
+  };
+}

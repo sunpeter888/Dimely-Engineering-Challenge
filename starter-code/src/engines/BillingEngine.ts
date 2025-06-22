@@ -1,6 +1,6 @@
-import { Opportunity, RecurlyState, BillingAction, LineItem } from '../types';
-import { RecurlyClient } from '../clients/RecurlyClient';
 import { differenceInDays } from 'date-fns';
+import { RecurlyClient } from '../clients/RecurlyClient';
+import { Opportunity, RecurlyState, BillingAction, LineItem, CreatedAccount, CreatedSubscription, CreatedCharge, UpdatedSubscription, CreatedInvoice, CancelledSubscription, AppliedCredit } from '../types';
 
 export class BillingEngine {
   constructor(private recurlyClient: RecurlyClient) {}
@@ -11,90 +11,205 @@ export class BillingEngine {
   async generateActions(opportunity: Opportunity, recurlyState: RecurlyState | null): Promise<BillingAction[]> {
     const actions: BillingAction[] = [];
 
-    switch (opportunity.type) {
-      case 'new_business':
-        actions.push(...(await this.generateNewBusinessActions(opportunity)));
-        break;
-      case 'renewal':
-        actions.push(...(await this.generateRenewalActions(opportunity, recurlyState)));
-        break;
-      case 'insertion_order':
-        actions.push(...(await this.generateInsertionOrderActions(opportunity, recurlyState)));
-        break;
-      case 'conversion_order':
-        actions.push(...(await this.generateConversionActions(opportunity, recurlyState)));
-        break;
+    try {
+      switch (opportunity.type) {
+        case 'new_business':
+          actions.push(...(await this.generateNewBusinessActions(opportunity)));
+          break;
+        case 'renewal':
+          actions.push(...(await this.generateRenewalActions(opportunity, recurlyState)));
+          break;
+        case 'insertion_order':
+          actions.push(...(await this.generateInsertionOrderActions(opportunity, recurlyState)));
+          break;
+        case 'conversion_order':
+          actions.push(...(await this.generateConversionActions(opportunity, recurlyState)));
+          break;
+      }
+    } catch (error) {
+      actions.push({
+        type: 'error' as BillingAction['type'],
+        description: `Critical error during ${opportunity.type} processing`,
+        details: { error: String(error), opportunity_id: opportunity.id },
+        requires_review: true,
+        risk_level: 'high',
+        notes: ['Processing completely failed', 'Manual intervention required'],
+      });
     }
 
     return actions;
   }
 
   /**
-   * Generate actions for new business opportunities
+   * Generate actions for new business opportunities with error handling and rollback
    */
   private async generateNewBusinessActions(opportunity: Opportunity): Promise<BillingAction[]> {
     const actions: BillingAction[] = [];
+    let createdAccount: CreatedAccount | null = null;
+    const createdSubscriptions: CreatedSubscription[] = [];
+    const createdCharges: CreatedCharge[] = [];
 
-    // Create new account (simulate API call)
-    const createdAccount = await this.recurlyClient.createAccount({
-      account_code: opportunity.account_id,
-      company_name: opportunity.contact_info.billing_address.company,
-      email: opportunity.contact_info.email,
-    });
-    actions.push({
-      type: 'create_account',
-      description: `Create new Recurly account for ${opportunity.account_name}`,
-      details: createdAccount,
-      requires_review: false,
-      risk_level: 'low',
-    });
+    try {
+      // Create new account (simulate API call)
+      const accountResponse = await this.recurlyClient.createAccount({
+        account_code: opportunity.account_id,
+        company_name: opportunity.contact_info.billing_address.company,
+        email: opportunity.contact_info.email,
+      });
+      createdAccount = {
+        account_code: accountResponse.account_code,
+        company_name: accountResponse.company_name,
+        email: accountResponse.email,
+      };
+      actions.push({
+        type: 'create_account',
+        description: `Create new Recurly account for ${opportunity.account_name}`,
+        details: accountResponse,
+        requires_review: false,
+        risk_level: 'low',
+      });
 
-    // Handle line items
-    for (const item of opportunity.line_items) {
-      if (item.billing_period === 'one_time') {
-        const riskLevel = this.calculateRiskLevel(item.total_price);
+      // Handle line items
+      for (const item of opportunity.line_items) {
+        try {
+          if (item.billing_period === 'one_time') {
+            const riskLevel = this.calculateRiskLevel(item.total_price);
+            const chargeAction: CreatedCharge = {
+              type: 'charge_one_time',
+              description: `One-time charge: ${item.product_name}`,
+              details: {
+                product_code: item.product_code,
+                amount_in_cents: item.total_price * 100,
+                description: item.description,
+                quantity: item.quantity,
+              },
+              amount_in_cents: item.total_price * 100,
+            };
+            actions.push({
+              type: 'charge_one_time',
+              description: `One-time charge: ${item.product_name}`,
+              details: {
+                product_code: item.product_code,
+                amount_in_cents: item.total_price * 100,
+                description: item.description,
+                quantity: item.quantity,
+              },
+              amount_in_cents: item.total_price * 100,
+              effective_date: opportunity.contract_start_date,
+              requires_review: item.total_price > 1000,
+              risk_level: riskLevel,
+              notes: item.total_price > 5000 ? ['High-value one-time charge'] : undefined,
+            });
+            createdCharges.push(chargeAction);
+          } else {
+            // Simulate subscription creation
+            const subscriptionResponse = await this.recurlyClient.createSubscription(opportunity.account_id, {
+              plan_code: item.product_code,
+              unit_amount_in_cents: item.unit_price * 100,
+              quantity: item.quantity,
+              billing_period: item.billing_period,
+              start_date: opportunity.contract_start_date,
+              end_date: opportunity.contract_end_date,
+            });
+            const createdSub: CreatedSubscription = {
+              uuid: subscriptionResponse.uuid,
+              plan_code: subscriptionResponse.plan_code,
+              unit_amount_in_cents: subscriptionResponse.unit_amount_in_cents,
+              quantity: subscriptionResponse.quantity,
+            };
+            createdSubscriptions.push(createdSub);
+            actions.push({
+              type: 'create_subscription',
+              description: `Create subscription: ${item.product_name} (${item.billing_period})`,
+              details: subscriptionResponse,
+              amount_in_cents: item.total_price * 100,
+              effective_date: opportunity.contract_start_date,
+              requires_review: false,
+              risk_level: 'low',
+            });
+          }
+        } catch (itemError) {
+          // Rollback previous items in this iteration
+          await this.rollbackNewBusinessItems(createdSubscriptions, createdCharges, actions);
+          throw itemError; // Re-throw to trigger main rollback
+        }
+      }
+    } catch (error) {
+      // Main rollback logic
+      await this.rollbackNewBusinessItems(createdSubscriptions, createdCharges, actions);
+      
+      // Note: Account deletion not available in RecurlyClient, manual intervention required
+      if (createdAccount) {
         actions.push({
-          type: 'charge_one_time',
-          description: `One-time charge: ${item.product_name}`,
-          details: {
-            product_code: item.product_code,
-            amount_in_cents: item.total_price * 100,
-            description: item.description,
-            quantity: item.quantity,
-          },
-          amount_in_cents: item.total_price * 100,
-          effective_date: opportunity.contract_start_date,
-          requires_review: item.total_price > 1000,
-          risk_level: riskLevel,
-          notes: item.total_price > 5000 ? ['High-value one-time charge'] : undefined,
+          type: 'error' as BillingAction['type'],
+          description: `Account ${createdAccount.account_code} created but processing failed`,
+          details: { account_code: createdAccount.account_code },
+          requires_review: true,
+          risk_level: 'high',
+          notes: ['Manual intervention required to close/delete account', 'Rollback due to error during new business processing'],
         });
-      } else {
-        // Simulate subscription creation
-        const createdSub = await this.recurlyClient.createSubscription(opportunity.account_id, {
-          plan_code: item.product_code,
-          unit_amount_in_cents: item.unit_price * 100,
-          quantity: item.quantity,
-          billing_period: item.billing_period,
-          start_date: opportunity.contract_start_date,
-          end_date: opportunity.contract_end_date,
-        });
+      }
+
+      actions.push({
+        type: 'error' as BillingAction['type'],
+        description: 'Error during new business processing',
+        details: { error: String(error), opportunity_id: opportunity.id },
+        requires_review: true,
+        risk_level: 'high',
+        notes: ['Processing halted, rollback attempted'],
+      });
+    }
+
+    return actions;
+  }
+
+  /**
+   * Rollback helper for new business items
+   */
+  private async rollbackNewBusinessItems(
+    createdSubscriptions: CreatedSubscription[], 
+    createdCharges: CreatedCharge[], 
+    actions: BillingAction[]
+  ): Promise<void> {
+    // Rollback subscriptions
+    for (const sub of createdSubscriptions) {
+      try {
+        await this.recurlyClient.cancelSubscription(sub.uuid);
         actions.push({
-          type: 'create_subscription',
-          description: `Create subscription: ${item.product_name} (${item.billing_period})`,
-          details: createdSub,
-          amount_in_cents: item.total_price * 100,
-          effective_date: opportunity.contract_start_date,
-          requires_review: false,
-          risk_level: 'low',
+          type: 'cancel_subscription',
+          description: `Rollback: Cancel subscription ${sub.plan_code}`,
+          details: { subscription_id: sub.uuid },
+          requires_review: true,
+          risk_level: 'high',
+          notes: ['Rollback due to error during new business processing'],
+        });
+      } catch (rollbackError) {
+        actions.push({
+          type: 'cancel_subscription',
+          description: `Rollback failed: Could not cancel subscription ${sub.plan_code}`,
+          details: { subscription_id: sub.uuid },
+          requires_review: true,
+          risk_level: 'high',
+          notes: ['Rollback failed', String(rollbackError)],
         });
       }
     }
 
-    return actions;
+    // Note: One-time charges typically cannot be rolled back once processed
+    if (createdCharges.length > 0) {
+      actions.push({
+        type: 'error' as BillingAction['type'],
+        description: 'One-time charges cannot be rolled back',
+        details: { charges: createdCharges.map(c => c.details) },
+        requires_review: true,
+        risk_level: 'high',
+        notes: ['Manual intervention required for charge reversals'],
+      });
+    }
   }
 
   /**
-   * Generate actions for renewal opportunities
+   * Generate actions for renewal opportunities with error handling and rollback
    */
   private async generateRenewalActions(opportunity: Opportunity, recurlyState: RecurlyState | null): Promise<BillingAction[]> {
     const actions: BillingAction[] = [];
@@ -111,55 +226,161 @@ export class BillingEngine {
       return actions;
     }
 
-    // Update existing subscriptions or create new ones
-    for (const item of opportunity.line_items) {
-      const existingSubscription = this.findMatchingSubscription(recurlyState, item);
+    const updatedSubscriptions: UpdatedSubscription[] = [];
+    const createdSubscriptions: CreatedSubscription[] = [];
+    const originalStates: Map<string, { unit_amount_in_cents: number; quantity: number; plan_code: string }> = new Map();
 
-      if (existingSubscription) {
-        const priceChange = item.unit_price - (existingSubscription.unit_amount_in_cents / 100);
-        const riskLevel = this.calculateRiskLevel(Math.abs(priceChange));
-        // Simulate update subscription
-        const updatedSub = await this.recurlyClient.updateSubscription(existingSubscription.uuid, {
-          plan_code: item.product_code,
-          new_unit_amount_in_cents: item.unit_price * 100,
-          new_quantity: item.quantity,
-        });
-        actions.push({
-          type: 'update_subscription',
-          description: `Update subscription: ${item.product_name}`,
-          details: updatedSub,
-          amount_in_cents: item.total_price * 100,
-          effective_date: opportunity.contract_start_date,
-          requires_review: Math.abs(priceChange) > 100,
-          risk_level: riskLevel,
-          notes: item.price_change_reason ? [item.price_change_reason] : undefined,
-        });
-      } else {
-        // Simulate new subscription
-        const createdSub = await this.recurlyClient.createSubscription(opportunity.account_id, {
-          plan_code: item.product_code,
-          unit_amount_in_cents: item.unit_price * 100,
-          quantity: item.quantity,
-          billing_period: item.billing_period,
-        });
-        actions.push({
-          type: 'create_subscription',
-          description: `Create new subscription: ${item.product_name}`,
-          details: createdSub,
-          amount_in_cents: item.total_price * 100,
-          effective_date: opportunity.contract_start_date,
-          requires_review: true,
-          risk_level: 'medium',
-          notes: ['New product added during renewal'],
-        });
+    try {
+      // Update existing subscriptions or create new ones
+      for (const item of opportunity.line_items) {
+        const existingSubscription = this.findMatchingSubscription(recurlyState, item);
+
+        if (existingSubscription) {
+          // Store original state for potential rollback
+          originalStates.set(existingSubscription.uuid, {
+            unit_amount_in_cents: existingSubscription.unit_amount_in_cents,
+            quantity: existingSubscription.quantity,
+            plan_code: existingSubscription.plan_code,
+          });
+
+          const priceChange = item.unit_price - (existingSubscription.unit_amount_in_cents / 100);
+          const riskLevel = this.calculateRiskLevel(Math.abs(priceChange));
+          
+          // Simulate update subscription
+          const subscriptionResponse = await this.recurlyClient.updateSubscription(existingSubscription.uuid, {
+            plan_code: item.product_code,
+            new_unit_amount_in_cents: item.unit_price * 100,
+            new_quantity: item.quantity,
+          });
+          const updatedSub: CreatedSubscription = {
+            uuid: subscriptionResponse.uuid,
+            plan_code: subscriptionResponse.plan_code,
+            unit_amount_in_cents: subscriptionResponse.unit_amount_in_cents,
+            quantity: subscriptionResponse.quantity,
+          };
+          updatedSubscriptions.push({ 
+            subscription: updatedSub, 
+            original: originalStates.get(existingSubscription.uuid)! 
+          });
+          
+          actions.push({
+            type: 'update_subscription',
+            description: `Update subscription: ${item.product_name}`,
+            details: subscriptionResponse,
+            amount_in_cents: item.total_price * 100,
+            effective_date: opportunity.contract_start_date,
+            requires_review: Math.abs(priceChange) > 100,
+            risk_level: riskLevel,
+            notes: item.price_change_reason ? [item.price_change_reason] : undefined,
+          });
+        } else {
+          // Simulate new subscription
+          const subscriptionResponse = await this.recurlyClient.createSubscription(opportunity.account_id, {
+            plan_code: item.product_code,
+            unit_amount_in_cents: item.unit_price * 100,
+            quantity: item.quantity,
+            billing_period: item.billing_period,
+          });
+          const createdSub: CreatedSubscription = {
+            uuid: subscriptionResponse.uuid,
+            plan_code: subscriptionResponse.plan_code,
+            unit_amount_in_cents: subscriptionResponse.unit_amount_in_cents,
+            quantity: subscriptionResponse.quantity,
+          };
+          createdSubscriptions.push(createdSub);
+          
+          actions.push({
+            type: 'create_subscription',
+            description: `Create new subscription: ${item.product_name}`,
+            details: subscriptionResponse,
+            amount_in_cents: item.total_price * 100,
+            effective_date: opportunity.contract_start_date,
+            requires_review: true,
+            risk_level: 'medium',
+            notes: ['New product added during renewal'],
+          });
+        }
       }
+    } catch (error) {
+      // Rollback logic for renewal
+      await this.rollbackRenewalItems(updatedSubscriptions, createdSubscriptions, actions);
+
+      actions.push({
+        type: 'error' as BillingAction['type'],
+        description: 'Error during renewal processing',
+        details: { error: String(error), opportunity_id: opportunity.id },
+        requires_review: true,
+        risk_level: 'high',
+        notes: ['Processing halted, rollback attempted'],
+      });
     }
 
     return actions;
   }
 
   /**
-   * Generate actions for insertion order opportunities
+   * Rollback helper for renewal items
+   */
+  private async rollbackRenewalItems(
+    updatedSubscriptions: UpdatedSubscription[], 
+    createdSubscriptions: CreatedSubscription[], 
+    actions: BillingAction[]
+  ): Promise<void> {
+    // Rollback updated subscriptions to original state
+    for (const { subscription, original } of updatedSubscriptions) {
+      try {
+        await this.recurlyClient.updateSubscription(subscription.uuid, {
+          plan_code: original.plan_code,
+          new_unit_amount_in_cents: original.unit_amount_in_cents,
+          new_quantity: original.quantity,
+        });
+        actions.push({
+          type: 'update_subscription',
+          description: `Rollback: Restore subscription ${subscription.plan_code} to original state`,
+          details: { subscription_id: subscription.uuid, restored_to: original },
+          requires_review: true,
+          risk_level: 'high',
+          notes: ['Rollback due to error during renewal processing'],
+        });
+      } catch (rollbackError) {
+        actions.push({
+          type: 'update_subscription',
+          description: `Rollback failed: Could not restore subscription ${subscription.plan_code}`,
+          details: { subscription_id: subscription.uuid },
+          requires_review: true,
+          risk_level: 'high',
+          notes: ['Rollback failed', String(rollbackError)],
+        });
+      }
+    }
+
+    // Rollback created subscriptions
+    for (const sub of createdSubscriptions) {
+      try {
+        await this.recurlyClient.cancelSubscription(sub.uuid);
+        actions.push({
+          type: 'cancel_subscription',
+          description: `Rollback: Cancel subscription ${sub.plan_code}`,
+          details: { subscription_id: sub.uuid },
+          requires_review: true,
+          risk_level: 'high',
+          notes: ['Rollback due to error during renewal processing'],
+        });
+      } catch (rollbackError) {
+        actions.push({
+          type: 'cancel_subscription',
+          description: `Rollback failed: Could not cancel subscription ${sub.plan_code}`,
+          details: { subscription_id: sub.uuid },
+          requires_review: true,
+          risk_level: 'high',
+          notes: ['Rollback failed', String(rollbackError)],
+        });
+      }
+    }
+  }
+
+  /**
+   * Generate actions for insertion order opportunities with error handling and rollback
    */
   private async generateInsertionOrderActions(opportunity: Opportunity, recurlyState: RecurlyState | null): Promise<BillingAction[]> {
     const actions: BillingAction[] = [];
@@ -176,93 +397,210 @@ export class BillingEngine {
       return actions;
     }
 
-    // Handle outstanding invoices first
-    if (opportunity.outstanding_invoices?.has_outstanding) {
-      actions.push({
-        type: 'create_invoice',
-        description: `Process outstanding invoices: $${opportunity.outstanding_invoices.total_outstanding}`,
-        details: {
-          invoice_ids: opportunity.outstanding_invoices.invoice_ids,
-          total_amount: opportunity.outstanding_invoices.total_outstanding,
-        },
-        amount_in_cents: (opportunity.outstanding_invoices?.total_outstanding || 0) * 100,
-        requires_review: true,
-        risk_level: 'medium',
-        notes: ['Outstanding invoices must be processed before new charges'],
-      });
-    }
+    const createdCharges: CreatedCharge[] = [];
+    const createdSubscriptions: CreatedSubscription[] = [];
+    const createdInvoices: CreatedInvoice[] = [];
 
-    for (const item of opportunity.line_items) {
-      if (item.billing_period === 'one_time') {
-        const riskLevel = this.calculateRiskLevel(item.total_price);
-        actions.push({
-          type: 'charge_one_time',
-          description: `One-time charge: ${item.product_name}`,
+    try {
+      // Handle outstanding invoices first
+      if (opportunity.outstanding_invoices?.has_outstanding) {
+        const invoiceAction: CreatedInvoice = {
+          type: 'create_invoice',
+          description: `Process outstanding invoices: $${opportunity.outstanding_invoices.total_outstanding}`,
           details: {
-            product_code: item.product_code,
-            amount_in_cents: item.total_price * 100,
-            immediate_invoice: item.immediate_invoice || false,
+            invoice_ids: opportunity.outstanding_invoices.invoice_ids,
+            total_amount: opportunity.outstanding_invoices.total_outstanding,
           },
-          amount_in_cents: item.total_price * 100,
-          effective_date: opportunity.contract_start_date,
-          requires_review: item.total_price > 1000,
-          risk_level: riskLevel,
-          notes: item.immediate_invoice ? ['Immediate invoicing required'] : undefined,
-        });
-      } else if (item.proration_needed) {
-        const prorationAmount = this.calculateAdvancedProration(
-          item,
-          opportunity.contract_start_date,
-          opportunity.contract_end_date,
-          opportunity.billing_frequency
-        );
+          amount_in_cents: (opportunity.outstanding_invoices?.total_outstanding || 0) * 100,
+        };
         actions.push({
-          type: 'prorate_charges',
-          description: `Prorate charges for: ${item.product_name}`,
+          type: 'create_invoice',
+          description: `Process outstanding invoices: $${opportunity.outstanding_invoices.total_outstanding}`,
           details: {
-            product_code: item.product_code,
-            monthly_amount: item.unit_price * 100,
-            months_remaining: item.months_remaining || 0,
-            proration_date: opportunity.contract_start_date,
-            proration_amount: prorationAmount,
-            item_classification: item.item_classification,
-            affects_base_subscription: item.affects_base_subscription,
+            invoice_ids: opportunity.outstanding_invoices.invoice_ids,
+            total_amount: opportunity.outstanding_invoices.total_outstanding,
           },
-          amount_in_cents: prorationAmount,
-          effective_date: opportunity.contract_start_date,
+          amount_in_cents: (opportunity.outstanding_invoices?.total_outstanding || 0) * 100,
           requires_review: true,
           risk_level: 'medium',
-          notes: [
-            'Proration calculation - verify dates and amounts',
-            `Classification: ${item.item_classification || 'unknown'}`,
-          ],
+          notes: ['Outstanding invoices must be processed before new charges'],
         });
-      } else {
-        // Simulate subscription creation
-        const createdSub = await this.recurlyClient.createSubscription(opportunity.account_id, {
-          plan_code: item.product_code,
-          unit_amount_in_cents: item.unit_price * 100,
-          quantity: item.quantity,
-          billing_period: item.billing_period,
-          item_classification: item.item_classification,
-        });
-        actions.push({
-          type: 'create_subscription',
-          description: `Add subscription: ${item.product_name}`,
-          details: createdSub,
-          amount_in_cents: item.total_price * 100,
-          effective_date: opportunity.contract_start_date,
-          requires_review: false,
-          risk_level: 'low',
-        });
+        createdInvoices.push(invoiceAction);
       }
+
+      for (const item of opportunity.line_items) {
+        try {
+          if (item.billing_period === 'one_time') {
+            const riskLevel = this.calculateRiskLevel(item.total_price);
+            const chargeAction: CreatedCharge = {
+              type: 'charge_one_time',
+              description: `One-time charge: ${item.product_name}`,
+              details: {
+                product_code: item.product_code,
+                amount_in_cents: item.total_price * 100,
+                immediate_invoice: item.immediate_invoice || false,
+              },
+              amount_in_cents: item.total_price * 100,
+            };
+            actions.push({
+              type: 'charge_one_time',
+              description: `One-time charge: ${item.product_name}`,
+              details: {
+                product_code: item.product_code,
+                amount_in_cents: item.total_price * 100,
+                immediate_invoice: item.immediate_invoice || false,
+              },
+              amount_in_cents: item.total_price * 100,
+              effective_date: opportunity.contract_start_date,
+              requires_review: item.total_price > 1000,
+              risk_level: riskLevel,
+              notes: item.immediate_invoice ? ['Immediate invoicing required'] : undefined,
+            });
+            createdCharges.push(chargeAction);
+          } else if (item.proration_needed) {
+            const prorationAmount = this.calculateAdvancedProration(
+              item,
+              opportunity.contract_start_date,
+              opportunity.contract_end_date,
+              opportunity.billing_frequency
+            );
+            const prorationAction: CreatedCharge = {
+              type: 'prorate_charges',
+              description: `Prorate charges for: ${item.product_name}`,
+              details: {
+                product_code: item.product_code,
+                monthly_amount: item.unit_price * 100,
+                months_remaining: item.months_remaining || 0,
+                proration_date: opportunity.contract_start_date,
+                proration_amount: prorationAmount,
+                item_classification: item.item_classification,
+                affects_base_subscription: item.affects_base_subscription,
+              },
+              amount_in_cents: prorationAmount,
+            };
+            actions.push({
+              type: 'prorate_charges',
+              description: `Prorate charges for: ${item.product_name}`,
+              details: {
+                product_code: item.product_code,
+                monthly_amount: item.unit_price * 100,
+                months_remaining: item.months_remaining || 0,
+                proration_date: opportunity.contract_start_date,
+                proration_amount: prorationAmount,
+                item_classification: item.item_classification,
+                affects_base_subscription: item.affects_base_subscription,
+              },
+              amount_in_cents: prorationAmount,
+              effective_date: opportunity.contract_start_date,
+              requires_review: true,
+              risk_level: 'medium',
+              notes: [
+                'Proration calculation - verify dates and amounts',
+                `Classification: ${item.item_classification || 'unknown'}`,
+              ],
+            });
+            createdCharges.push(prorationAction);
+          } else {
+            // Simulate subscription creation
+            const subscriptionResponse = await this.recurlyClient.createSubscription(opportunity.account_id, {
+              plan_code: item.product_code,
+              unit_amount_in_cents: item.unit_price * 100,
+              quantity: item.quantity,
+              billing_period: item.billing_period,
+              item_classification: item.item_classification,
+            });
+            const createdSub: CreatedSubscription = {
+              uuid: subscriptionResponse.uuid,
+              plan_code: subscriptionResponse.plan_code,
+              unit_amount_in_cents: subscriptionResponse.unit_amount_in_cents,
+              quantity: subscriptionResponse.quantity,
+            };
+            createdSubscriptions.push(createdSub);
+            
+            actions.push({
+              type: 'create_subscription',
+              description: `Add subscription: ${item.product_name}`,
+              details: subscriptionResponse,
+              amount_in_cents: item.total_price * 100,
+              effective_date: opportunity.contract_start_date,
+              requires_review: false,
+              risk_level: 'low',
+            });
+          }
+        } catch (itemError) {
+          // Rollback previous items in this iteration
+          await this.rollbackInsertionOrderItems(createdSubscriptions, createdCharges, createdInvoices, actions);
+          throw itemError;
+        }
+      }
+    } catch (error) {
+      // Main rollback logic
+      await this.rollbackInsertionOrderItems(createdSubscriptions, createdCharges, createdInvoices, actions);
+
+      actions.push({
+        type: 'error' as BillingAction['type'],
+        description: 'Error during insertion order processing',
+        details: { error: String(error), opportunity_id: opportunity.id },
+        requires_review: true,
+        risk_level: 'high',
+        notes: ['Processing halted, rollback attempted'],
+      });
     }
 
     return actions;
   }
 
   /**
-   * Generate actions for self-service conversion opportunities
+   * Rollback helper for insertion order items
+   */
+  private async rollbackInsertionOrderItems(
+    createdSubscriptions: CreatedSubscription[], 
+    createdCharges: CreatedCharge[], 
+    createdInvoices: CreatedInvoice[], 
+    actions: BillingAction[]
+  ): Promise<void> {
+    // Rollback subscriptions
+    for (const sub of createdSubscriptions) {
+      try {
+        await this.recurlyClient.cancelSubscription(sub.uuid);
+        actions.push({
+          type: 'cancel_subscription',
+          description: `Rollback: Cancel subscription ${sub.plan_code}`,
+          details: { subscription_id: sub.uuid },
+          requires_review: true,
+          risk_level: 'high',
+          notes: ['Rollback due to error during insertion order processing'],
+        });
+      } catch (rollbackError) {
+        actions.push({
+          type: 'cancel_subscription',
+          description: `Rollback failed: Could not cancel subscription ${sub.plan_code}`,
+          details: { subscription_id: sub.uuid },
+          requires_review: true,
+          risk_level: 'high',
+          notes: ['Rollback failed', String(rollbackError)],
+        });
+      }
+    }
+
+    // Note: Charges and invoices typically cannot be rolled back
+    if (createdCharges.length > 0 || createdInvoices.length > 0) {
+      actions.push({
+        type: 'error' as BillingAction['type'],
+        description: 'Charges and invoices cannot be automatically rolled back',
+        details: { 
+          charges: createdCharges.map(c => c.details),
+          invoices: createdInvoices.map(i => i.details)
+        },
+        requires_review: true,
+        risk_level: 'high',
+        notes: ['Manual intervention required for charge/invoice reversals'],
+      });
+    }
+  }
+
+  /**
+   * Generate actions for self-service conversion opportunities with error handling and rollback
    */
   private async generateConversionActions(opportunity: Opportunity, recurlyState: RecurlyState | null): Promise<BillingAction[]> {
     const actions: BillingAction[] = [];
@@ -279,64 +617,170 @@ export class BillingEngine {
       return actions;
     }
 
-    // Cancel existing self-service subscriptions
-    for (const subscription of recurlyState.subscriptions) {
-      if (subscription.state === 'active') {
-        await this.recurlyClient.cancelSubscription(subscription.uuid);
-        actions.push({
-          type: 'cancel_subscription',
-          description: `Cancel self-service subscription: ${subscription.plan_code}`,
+    const cancelledSubscriptions: CancelledSubscription[] = [];
+    const createdSubscriptions: CreatedSubscription[] = [];
+    const appliedCredits: AppliedCredit[] = [];
+    const originalStates: Map<string, { state: string; plan_code: string; unit_amount_in_cents: number; quantity: number }> = new Map();
+
+    try {
+      // Cancel existing self-service subscriptions
+      for (const subscription of recurlyState.subscriptions) {
+        if (subscription.state === 'active') {
+          // Store original state for potential rollback
+          originalStates.set(subscription.uuid, {
+            state: subscription.state,
+            plan_code: subscription.plan_code,
+            unit_amount_in_cents: subscription.unit_amount_in_cents,
+            quantity: subscription.quantity,
+          });
+
+          await this.recurlyClient.cancelSubscription(subscription.uuid);
+          const cancelledSub: CreatedSubscription = {
+            uuid: subscription.uuid,
+            plan_code: subscription.plan_code,
+            unit_amount_in_cents: subscription.unit_amount_in_cents,
+            quantity: subscription.quantity,
+          };
+          cancelledSubscriptions.push({ 
+            subscription: cancelledSub, 
+            original: originalStates.get(subscription.uuid)! 
+          });
+          
+          actions.push({
+            type: 'cancel_subscription',
+            description: `Cancel self-service subscription: ${subscription.plan_code}`,
+            details: {
+              subscription_id: subscription.uuid,
+              cancellation_date: opportunity.contract_start_date,
+              current_amount: subscription.unit_amount_in_cents,
+            },
+            requires_review: false,
+            risk_level: 'medium',
+            notes: ['Ensure no service interruption during transition'],
+          });
+        }
+      }
+
+      // Apply credit for unused self-service time
+      if (opportunity.billing_transition?.credit_amount_due) {
+        const creditAction: AppliedCredit = {
+          type: 'apply_credit',
+          description: `Apply credit for unused self-service period`,
           details: {
-            subscription_id: subscription.uuid,
-            cancellation_date: opportunity.contract_start_date,
-            current_amount: subscription.unit_amount_in_cents,
+            credit_amount_in_cents: opportunity.billing_transition.credit_amount_due * 100,
+            description: opportunity.billing_transition.credit_calculation,
+            credit_reason: 'Self-service to enterprise conversion',
           },
-          requires_review: false,
+          amount_in_cents: opportunity.billing_transition.credit_amount_due * 100,
+        };
+        actions.push({
+          type: 'apply_credit',
+          description: `Apply credit for unused self-service period`,
+          details: {
+            credit_amount_in_cents: opportunity.billing_transition.credit_amount_due * 100,
+            description: opportunity.billing_transition.credit_calculation,
+            credit_reason: 'Self-service to enterprise conversion',
+          },
+          amount_in_cents: opportunity.billing_transition.credit_amount_due * 100,
+          requires_review: true,
           risk_level: 'medium',
-          notes: ['Ensure no service interruption during transition'],
+          notes: ['Verify credit calculation is correct'],
+        });
+        appliedCredits.push(creditAction);
+      }
+
+      // Create new enterprise subscriptions
+      for (const item of opportunity.line_items) {
+        const subscriptionResponse = await this.recurlyClient.createSubscription(opportunity.account_id, {
+          plan_code: item.product_code,
+          unit_amount_in_cents: item.unit_price * 100,
+          quantity: item.quantity,
+          collection_method: 'manual', // Switch to invoicing
+          net_terms: 30,
+          replaces_self_service: item.replaces_self_service || false,
+        });
+        const createdSub: CreatedSubscription = {
+          uuid: subscriptionResponse.uuid,
+          plan_code: subscriptionResponse.plan_code,
+          unit_amount_in_cents: subscriptionResponse.unit_amount_in_cents,
+          quantity: subscriptionResponse.quantity,
+        };
+        createdSubscriptions.push(createdSub);
+        
+        actions.push({
+          type: 'create_subscription',
+          description: `Create enterprise subscription: ${item.product_name}`,
+          details: subscriptionResponse,
+          amount_in_cents: item.total_price * 100,
+          effective_date: opportunity.contract_start_date,
+          requires_review: false,
+          risk_level: 'low',
         });
       }
-    }
+    } catch (error) {
+      // Rollback logic for conversion
+      await this.rollbackConversionItems(cancelledSubscriptions, createdSubscriptions, appliedCredits, actions);
 
-    // Apply credit for unused self-service time
-    if (opportunity.billing_transition?.credit_amount_due) {
       actions.push({
-        type: 'apply_credit',
-        description: `Apply credit for unused self-service period`,
-        details: {
-          credit_amount_in_cents: opportunity.billing_transition.credit_amount_due * 100,
-          description: opportunity.billing_transition.credit_calculation,
-          credit_reason: 'Self-service to enterprise conversion',
-        },
-        amount_in_cents: opportunity.billing_transition.credit_amount_due * 100,
+        type: 'error' as BillingAction['type'],
+        description: 'Error during conversion processing',
+        details: { error: String(error), opportunity_id: opportunity.id },
         requires_review: true,
-        risk_level: 'medium',
-        notes: ['Verify credit calculation is correct'],
-      });
-    }
-
-    // Create new enterprise subscriptions
-    for (const item of opportunity.line_items) {
-      const createdSub = await this.recurlyClient.createSubscription(opportunity.account_id, {
-        plan_code: item.product_code,
-        unit_amount_in_cents: item.unit_price * 100,
-        quantity: item.quantity,
-        collection_method: 'manual', // Switch to invoicing
-        net_terms: 30,
-        replaces_self_service: item.replaces_self_service || false,
-      });
-      actions.push({
-        type: 'create_subscription',
-        description: `Create enterprise subscription: ${item.product_name}`,
-        details: createdSub,
-        amount_in_cents: item.total_price * 100,
-        effective_date: opportunity.contract_start_date,
-        requires_review: false,
-        risk_level: 'low',
+        risk_level: 'high',
+        notes: ['Processing halted, rollback attempted'],
       });
     }
 
     return actions;
+  }
+
+  /**
+   * Rollback helper for conversion items
+   */
+  private async rollbackConversionItems(
+    cancelledSubscriptions: CancelledSubscription[], 
+    createdSubscriptions: CreatedSubscription[], 
+    appliedCredits: AppliedCredit[], 
+    actions: BillingAction[]
+  ): Promise<void> {
+    // Rollback created subscriptions
+    for (const sub of createdSubscriptions) {
+      try {
+        await this.recurlyClient.cancelSubscription(sub.uuid);
+        actions.push({
+          type: 'cancel_subscription',
+          description: `Rollback: Cancel enterprise subscription ${sub.plan_code}`,
+          details: { subscription_id: sub.uuid },
+          requires_review: true,
+          risk_level: 'high',
+          notes: ['Rollback due to error during conversion processing'],
+        });
+      } catch (rollbackError) {
+        actions.push({
+          type: 'cancel_subscription',
+          description: `Rollback failed: Could not cancel enterprise subscription ${sub.plan_code}`,
+          details: { subscription_id: sub.uuid },
+          requires_review: true,
+          risk_level: 'high',
+          notes: ['Rollback failed', String(rollbackError)],
+        });
+      }
+    }
+
+    // Note: Cancelled subscriptions and applied credits typically cannot be easily rolled back
+    if (cancelledSubscriptions.length > 0 || appliedCredits.length > 0) {
+      actions.push({
+        type: 'error' as BillingAction['type'],
+        description: 'Cancelled subscriptions and applied credits require manual rollback',
+        details: { 
+          cancelled_subscriptions: cancelledSubscriptions.map(c => c.subscription.plan_code),
+          applied_credits: appliedCredits.map(c => c.details)
+        },
+        requires_review: true,
+        risk_level: 'high',
+        notes: ['Manual intervention required to restore cancelled subscriptions and reverse credits'],
+      });
+    }
   }
 
   /**
@@ -383,4 +827,4 @@ export class BillingEngine {
     const prorationAmount = Math.min(dayBasedProration, monthBasedProration);
     return Math.round(prorationAmount * 100); // Return in cents
   }
-} 
+}
